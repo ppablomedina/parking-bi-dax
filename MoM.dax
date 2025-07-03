@@ -1,0 +1,290 @@
+Mensual = 
+VAR Last_date =
+    CALCULATE (
+        MAX ( facts[date] ),
+        FILTER ( facts, NOT ISBLANK ( facts[value] ) )
+    )
+
+VAR CurrentYear  = YEAR ( Last_date )
+VAR CurrentMonth = MONTH ( Last_date )
+VAR PrevMonth    = IF ( CurrentMonth = 1, 12, CurrentMonth - 1 )
+VAR PrevYear     = IF ( CurrentMonth = 1, CurrentYear - 1, CurrentYear )
+
+-- Base table per parking
+VAR BasePerParking =
+    ADDCOLUMNS (
+        SUMMARIZE (
+            facts,
+            facts[subjects_id],
+            facts[metric]
+        ),
+        "CurrentMonth_Avg",
+            VAR s_id = [subjects_id]
+            VAR m    = [metric]
+            RETURN ROUND (
+                CALCULATE (
+                    SUM ( facts[value] ),
+                    facts[subjects_id] = s_id,
+                    facts[metric] = m,
+                    YEAR ( facts[date] ) = CurrentYear,
+                    MONTH ( facts[date] ) = CurrentMonth
+                ),
+                2
+            ),
+        "PrevMonth_Avg",
+            VAR s_id = [subjects_id]
+            VAR m    = [metric]
+            RETURN ROUND (
+                CALCULATE (
+                    SUM ( facts[value] ),
+                    facts[subjects_id] = s_id,
+                    facts[metric] = m,
+                    YEAR ( facts[date] ) = PrevYear,
+                    MONTH ( facts[date] ) = PrevMonth
+                ),
+                2
+            ),
+        "CurrentMonth_Sum",
+            VAR s_id = [subjects_id]
+            VAR m    = [metric]
+            RETURN ROUND (
+                CALCULATE (
+                    SUM ( facts[value] ),
+                    facts[subjects_id] = s_id,
+                    facts[metric] = m,
+                    YEAR ( facts[date] ) = CurrentYear,
+                    MONTH ( facts[date] ) = CurrentMonth
+                ),
+                2
+            ),
+        "PrevMonth_Sum",
+            VAR s_id = [subjects_id]
+            VAR m    = [metric]
+            RETURN ROUND (
+                CALCULATE (
+                    SUM ( facts[value] ),
+                    facts[subjects_id] = s_id,
+                    facts[metric] = m,
+                    YEAR ( facts[date] ) = PrevYear,
+                    MONTH ( facts[date] ) = PrevMonth
+                ),
+                2
+            )
+    )
+
+VAR BaseWithDiffs =
+    ADDCOLUMNS (
+        BasePerParking,
+        "Dif_Sum", ROUND ( [CurrentMonth_Sum] - [PrevMonth_Sum], 2 ),
+        "Dif_Avg", ROUND ( [CurrentMonth_Avg] - [PrevMonth_Sum], 2 ),
+        "PercentageChange_Sum",
+            ROUND (
+                DIVIDE ( [CurrentMonth_Sum] - [PrevMonth_Sum], [PrevMonth_Sum] ) * 100,
+                2
+            ),
+        "PercentageChange_Avg",
+            ROUND (
+                DIVIDE ( [CurrentMonth_Avg] - [PrevMonth_Avg], [PrevMonth_Avg] ) * 100,
+                2
+            )
+    )
+
+VAR BaseWithDisplay =
+    ADDCOLUMNS (
+        BaseWithDiffs,
+        "Performance_Sum",
+            VAR Porcentaje = [PercentageChange_Sum]
+            VAR Diferencia = [Dif_Sum]
+            VAR SignoPct   = IF ( NOT ISBLANK ( Porcentaje ) && Porcentaje > 0, "+", "" )
+            VAR SignoDif   = IF ( NOT ISBLANK ( Diferencia ) && Diferencia > 0, "+", "" )
+            VAR NombreMet  = [metric]
+            VAR EsRec      = LEFT ( NombreMet, 11 ) = "Recaudación"
+            VAR EsIndice   = LEFT ( NombreMet, 6 )  = "Índice"
+            VAR EsPermanen = LEFT ( NombreMet, 11 ) = "Permanencia"
+            VAR FormatoDif =
+                SWITCH (
+                    TRUE(),
+                    EsIndice,                          SignoDif & FORMAT ( Diferencia, "0.00" ),
+                    EsPermanen,                        SignoDif & FORMAT ( Diferencia, "0.00" ),
+                    ABS ( Diferencia ) >= 1000000,     SignoDif & FORMAT ( Diferencia / 1000000, "0.0" ) & " mill",
+                    ABS ( Diferencia ) >= 10000,       SignoDif & FORMAT ( Diferencia / 1000, "0" ) & " mil",
+                    ABS ( Diferencia ) >= 1000,        SignoDif & FORMAT ( Diferencia / 1000, "0.0" ) & " mil",
+                    TRUE(),                            SignoDif & FORMAT ( Diferencia, "0" )
+                )
+            VAR DifConSimbolo = IF ( EsRec, FormatoDif & " €", FormatoDif )
+            RETURN
+                SignoPct & FORMAT ( ROUND ( Porcentaje, 0 ), "0" ) & "%" & " | " & DifConSimbolo,
+        "Performance_Avg",
+            VAR Porcentaje = [PercentageChange_Avg]
+            VAR Diferencia = [Dif_Avg]
+            VAR SignoPct   = IF ( NOT ISBLANK ( Porcentaje ) && Porcentaje > 0, "+", "" )
+            VAR SignoDif   = IF ( NOT ISBLANK ( Diferencia ) && Diferencia > 0, "+", "" )
+            VAR NombreMet  = [metric]
+            VAR EsRec      = LEFT ( NombreMet, 11 ) = "Recaudación"
+            VAR EsIndice   = LEFT ( NombreMet, 6 )  = "Índice"
+            VAR EsPermanen = LEFT ( NombreMet, 11 ) = "Permanencia"
+            VAR FormatoDif =
+                SWITCH (
+                    TRUE(),
+                    EsIndice,                          SignoDif & FORMAT ( Diferencia, "0.00" ),
+                    EsPermanen,                        SignoDif & FORMAT ( Diferencia, "0.00" ),
+                    ABS ( Diferencia ) >= 1000000,     SignoDif & FORMAT ( Diferencia / 1000000, "0.0" ) & " mill",
+                    ABS ( Diferencia ) >= 10000,       SignoDif & FORMAT ( Diferencia / 1000, "0" ) & " mil",
+                    ABS ( Diferencia ) >= 1000,        SignoDif & FORMAT ( Diferencia / 1000, "0.0" ) & " mil",
+                    TRUE(),                            SignoDif & FORMAT ( Diferencia, "0" )
+                )
+            VAR DifConSimbolo = IF ( EsRec, FormatoDif & " €", FormatoDif )
+            RETURN
+                SignoPct & FORMAT ( ROUND ( Porcentaje, 0 ), "0" ) & "%" & " | " & DifConSimbolo
+    )
+
+
+-- Totals per metric with subjects_id = -1
+VAR TotalsPerMetric =
+    ADDCOLUMNS (
+        SUMMARIZE ( facts, facts[metric] ),
+        "subjects_id", -1,
+        "CurrentMonth_Avg",
+            ROUND (
+                AVERAGEX (
+                    VALUES ( facts[subjects_id] ),
+                    CALCULATE (
+                        SUM ( facts[value] ),
+                        YEAR ( facts[date] ) = CurrentYear,
+                        MONTH ( facts[date] ) = CurrentMonth
+                    )
+                ),
+                2
+            ),
+        "PrevMonth_Avg",
+            ROUND (
+                AVERAGEX (
+                    VALUES ( facts[subjects_id] ),
+                    CALCULATE (
+                        SUM ( facts[value] ),
+                        YEAR ( facts[date] ) = PrevYear,
+                        MONTH ( facts[date] ) = PrevMonth
+                    )
+                ),
+                2
+            ),
+        "CurrentMonth_Sum",
+            ROUND (
+                CALCULATE (
+                    SUM ( facts[value] ),
+                    YEAR ( facts[date] ) = CurrentYear,
+                    MONTH ( facts[date] ) = CurrentMonth
+                ),
+                2
+            ),
+        "PrevMonth_Sum",
+            ROUND (
+                CALCULATE (
+                    SUM ( facts[value] ),
+                    YEAR ( facts[date] ) = PrevYear,
+                    MONTH ( facts[date] ) = PrevMonth
+                ),
+                2
+            )
+    )
+
+VAR TotalsWithDiffs =
+    ADDCOLUMNS (
+        TotalsPerMetric,
+        "Dif_Sum", ROUND ( [CurrentMonth_Sum] - [PrevMonth_Sum], 2 ),
+        "Dif_Avg", ROUND ( [CurrentMonth_Avg] - [PrevMonth_Avg], 2 ),
+        "PercentageChange_Sum",
+            ROUND (
+                DIVIDE ( [CurrentMonth_Sum] - [PrevMonth_Sum], [PrevMonth_Sum] ) * 100,
+                2
+            ),
+        "PercentageChange_Avg",
+            ROUND (
+                DIVIDE ( [CurrentMonth_Avg] - [PrevMonth_Avg], [PrevMonth_Avg] ) * 100,
+                2
+            )
+    )
+
+VAR TotalsWithDisplay =
+    ADDCOLUMNS (
+        TotalsWithDiffs,
+        "Performance_Sum",
+            VAR Porcentaje = [PercentageChange_Sum]
+            VAR Diferencia = [Dif_Sum]
+            VAR SignoPct   = IF ( NOT ISBLANK ( Porcentaje ) && Porcentaje > 0, "+", "" )
+            VAR SignoDif   = IF ( NOT ISBLANK ( Diferencia ) && Diferencia > 0, "+", "" )
+            VAR NombreMet  = [metric]
+            VAR EsRec      = LEFT ( NombreMet, 11 ) = "Recaudación"
+            VAR EsIndice   = LEFT ( NombreMet, 6 )  = "Índice"
+            VAR EsPermanen = LEFT ( NombreMet, 11 ) = "Permanencia"
+            VAR FormatoDif =
+                SWITCH (
+                    TRUE(),
+                    EsIndice,                          SignoDif & FORMAT ( Diferencia, "0.00" ),
+                    EsPermanen,                        SignoDif & FORMAT ( Diferencia, "0.00" ),
+                    ABS ( Diferencia ) >= 1000000,     SignoDif & FORMAT ( Diferencia / 1000000, "0.0" ) & " mill",
+                    ABS ( Diferencia ) >= 10000,       SignoDif & FORMAT ( Diferencia / 1000, "0" ) & " mil",
+                    ABS ( Diferencia ) >= 1000,        SignoDif & FORMAT ( Diferencia / 1000, "0.0" ) & " mil",
+                    TRUE(),                            SignoDif & FORMAT ( Diferencia, "0" )
+                )
+            VAR DifConSimbolo = IF ( EsRec, FormatoDif & " €", FormatoDif )
+            RETURN
+                SignoPct & FORMAT ( ROUND ( Porcentaje, 0 ), "0" ) & "%" & " | " & DifConSimbolo,
+        "Performance_Avg",
+            VAR Porcentaje = [PercentageChange_Avg]
+            VAR Diferencia = [Dif_Avg]
+            VAR SignoPct   = IF ( NOT ISBLANK ( Porcentaje ) && Porcentaje > 0, "+", "" )
+            VAR SignoDif   = IF ( NOT ISBLANK ( Diferencia ) && Diferencia > 0, "+", "" )
+            VAR NombreMet  = [metric]
+            VAR EsRec      = LEFT ( NombreMet, 11 ) = "Recaudación"
+            VAR EsIndice   = LEFT ( NombreMet, 6 )  = "Índice"
+            VAR EsPermanen = LEFT ( NombreMet, 11 ) = "Permanencia"
+            VAR FormatoDif =
+                SWITCH (
+                    TRUE(),
+                    EsIndice,                          SignoDif & FORMAT ( Diferencia, "0.00" ),
+                    EsPermanen,                        SignoDif & FORMAT ( Diferencia, "0.00" ),
+                    ABS ( Diferencia ) >= 1000000,     SignoDif & FORMAT ( Diferencia / 1000000, "0.0" ) & " mill",
+                    ABS ( Diferencia ) >= 10000,       SignoDif & FORMAT ( Diferencia / 1000, "0" ) & " mil",
+                    ABS ( Diferencia ) >= 1000,        SignoDif & FORMAT ( Diferencia / 1000, "0.0" ) & " mil",
+                    TRUE(),                            SignoDif & FORMAT ( Diferencia, "0" )
+                )
+            VAR DifConSimbolo = IF ( EsRec, FormatoDif & " €", FormatoDif )
+            RETURN
+                SignoPct & FORMAT ( ROUND ( Porcentaje, 0 ), "0" ) & "%" & " | " & DifConSimbolo
+    )
+
+-- Final union of both tables
+RETURN
+    UNION (
+        SELECTCOLUMNS (
+            BaseWithDisplay,
+            "subjects_id",          [subjects_id],
+            "metric",               [metric],
+            "CurrentMonth_Avg",     [CurrentMonth_Avg],
+            "PrevMonth_Avg",        [PrevMonth_Avg],
+            "CurrentMonth_Sum",     [CurrentMonth_Sum],
+            "PrevMonth_Sum",        [PrevMonth_Sum],
+            "Dif_Sum",              [Dif_Sum],
+            "Dif_Avg",              [Dif_Avg],
+            "PercentageChange_Sum", [PercentageChange_Sum],
+            "PercentageChange_Avg", [PercentageChange_Avg],
+            "Performance_Sum",      [Performance_Sum],
+            "Performance_Avg",      [Performance_Avg]
+        ),
+        SELECTCOLUMNS (
+            TotalsWithDisplay,
+            "subjects_id",          [subjects_id],
+            "metric",               [metric],
+            "CurrentMonth_Avg",     [CurrentMonth_Avg],
+            "PrevMonth_Avg",        [PrevMonth_Avg],
+            "CurrentMonth_Sum",     [CurrentMonth_Sum],
+            "PrevMonth_Sum",        [PrevMonth_Sum],
+            "Dif_Sum",              [Dif_Sum],
+            "Dif_Avg",              [Dif_Avg],
+            "PercentageChange_Sum", [PercentageChange_Sum],
+            "PercentageChange_Avg", [PercentageChange_Avg],
+            "Performance_Sum",      [Performance_Sum],
+            "Performance_Avg",      [Performance_Avg]
+        )
+    )

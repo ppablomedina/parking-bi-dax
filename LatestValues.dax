@@ -1,0 +1,21 @@
+LatesValues = 
+VAR Last_date =
+    CALCULATE(
+        MAX('facts'[date]),
+        FILTER('facts', NOT ISBLANK('facts'[value]))
+    )
+
+RETURN SUMMARIZECOLUMNS(
+        'facts'[subjects_id],
+        'facts'[metric],
+
+        "Last_Value",
+            CALCULATE(
+                SUM('facts'[value]),
+                FILTER(
+                    ALL('facts'[date]),
+                    YEAR(DATEVALUE('facts'[date])) = YEAR(Last_date) &&
+                    MONTH(DATEVALUE('facts'[date])) = MONTH(Last_date)
+                )
+            )
+    )
